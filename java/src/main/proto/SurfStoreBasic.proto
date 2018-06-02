@@ -128,3 +128,4 @@ message SimpleAnswer {
 message NodeList {
     repeated int32 nodelist = 1;
 }
+
