@@ -2,6 +2,7 @@ package surfstore;
 
 import java.util.*;
 import java.nio.charset.StandardCharsets;
+import java.lang.Thread;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.BufferedWriter;
@@ -31,7 +32,13 @@ public final class Client {
     private final ManagedChannel blockChannel;
     private final BlockStoreGrpc.BlockStoreBlockingStub blockStub;
 
+    private final ManagedChannel followerChannel;
+    private final MetadataStoreGrpc.MetadataStoreBlockingStub followerStub;
+
     private final ConfigReader config;
+
+    private int leader;
+    private int follower;
 
     public Client(ConfigReader config) {
         this.metadataChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(config.getLeaderNum()))
@@ -42,12 +49,20 @@ public final class Client {
                 .usePlaintext(true).build();
         this.blockStub = BlockStoreGrpc.newBlockingStub(blockChannel);
 
+	this.leader = config.getLeaderNum(); 
+	this.follower = (this.leader + 1) % config.getNumMetadataServers();
+	System.out.println("Leader index: " + this.leader + "; Follower index: " + this.follower);
+        this.followerChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(this.follower))
+                .usePlaintext(true).build();
+        this.followerStub = MetadataStoreGrpc.newBlockingStub(followerChannel);
+
         this.config = config;
     }
 
     public void shutdown() throws InterruptedException {
         metadataChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
         blockChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
+        followerChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
     }
 
     private void ensure(boolean b){
@@ -93,6 +108,41 @@ public final class Client {
 
    //     logger.info("We passed all the test!");
    // }
+
+
+    private void heartBeatTest(String targetf){
+	FileInfo respFileInfo = followerStub.readFile(FileInfo.newBuilder()
+							.setFilename(targetf)
+							.build());
+	int beforeVersion = respFileInfo.getVersion();
+
+	followerStub.crash(Empty.newBuilder().build());
+	logger.info("Crashed" + this.follower);
+
+	try{
+		upload(targetf);
+	} catch (IOException | RuntimeException e){
+		System.out.println("Error occurs in uploading to the leader.");
+	}
+
+	followerStub.restore(Empty.newBuilder().build());
+	logger.info("Restored" + this.follower);
+	
+	try{
+	    Thread.sleep(2000);
+	} catch(InterruptedException e) {
+	        Thread.currentThread().interrupt();
+	}
+
+	respFileInfo = followerStub.readFile(FileInfo.newBuilder()
+							.setFilename(targetf)
+							.build());
+	int afterVersion = respFileInfo.getVersion();
+	System.out.println("before: " + beforeVersion);
+	System.out.println("after: " + afterVersion);
+	ensure(beforeVersion != afterVersion);
+	return;
+    }
 
     private void upload(String targetf) throws IOException, RuntimeException{
 	ArrayList<String> hashList = new ArrayList();
@@ -267,6 +317,8 @@ public final class Client {
 			System.out.println(client.getVersion(targetf));
 		if(c_args.getString("operation").equals("delete"))
 			client.delete(targetf);
+		if(c_args.getString("operation").equals("heartbeat"))
+			client.heartBeatTest(targetf);
         } 
         catch (IOException e){
         	System.err.println("Failed in reading " + targetf);}
