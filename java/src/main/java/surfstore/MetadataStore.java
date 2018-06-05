@@ -106,16 +106,7 @@ public final class MetadataStore {
                 .build()
                 .start();
         logger.info("Server started, listening on " + port);
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            @Override
-            public void run() {
-                System.err.println("*** shutting down gRPC server since JVM is shutting down");
-                MetadataStore.this.stop();
-                System.err.println("*** server shut down");
-            }
-        });
-
-	// leader heartbeat
+        // leader heartbeat
 	if (leader) {
 		Thread heartbeatThread = 
 		    new Thread(
@@ -129,6 +120,16 @@ public final class MetadataStore {
 		heartbeatThread.setDaemon(true);
 		heartbeatThread.start();
 	}
+	Runtime.getRuntime().addShutdownHook(new Thread() {
+            @Override
+            public void run() {
+                System.err.println("*** shutting down gRPC server since JVM is shutting down");
+                MetadataStore.this.stop();
+                System.err.println("*** server shut down");
+            }
+        });
+
+	
     }
 
     private void stop() {
@@ -210,9 +211,11 @@ public final class MetadataStore {
 		if (metadataMap.containsKey(request.getFilename())) {
 			hashlist = metadataMap.get(request.getFilename());
 			version = versionMap.get(request.getFilename());
+			logger.info("read file get version " + Integer.toString(version));
 		} else {
 			hashlist = new ArrayList<String>();
 			version = 0; 
+			logger.info("read file no such file");
 		}
 		iter_hashlist = hashlist;
 
@@ -268,12 +271,14 @@ public final class MetadataStore {
 
 	private int twoPhase(surfstore.SurfStoreBasic.FileInfo request) {
 		int updated = 0;
+		logger.info("two phase");
 		for (int i = 0; i < metadataStubList.size(); i++) {
 			MetadataStoreGrpc.MetadataStoreBlockingStub metaStub = metadataStubList.get(i);
 			metaStub.ping(Empty.newBuilder().build());
 			// 1st phase
 			if (metaStub.isCrashed(Empty.newBuilder().build()).getAnswer() == false) { // not crashed
 				// 2nd phase
+				logger.info("centralized should not be here");
 				if (metaStub.updateFollower(request).getResult() == WriteResult.Result.OK) {
 					followerMapList.get(i).put(request.getFilename(), request.getVersion());
 					updated++;
@@ -290,30 +295,47 @@ public final class MetadataStore {
 		WriteResult.Builder builder = WriteResult.newBuilder();
 		if (leader){ // is leader
 			logger.info("Modifying file  " + request.getFilename());
+			int cur_version = 0;
+			if(versionMap.containsKey(request.getFilename())){
+                		cur_version = versionMap.get(request.getFilename());
+				logger.info("current version is " + Integer.toString(cur_version));
+			}
 
-                	int cur_version = versionMap.get(request.getFilename());
+
                 	ArrayList<String> hashlist = new ArrayList<String>(request.getBlocklistList()); 
+			logger.info("request get version " + Integer.toString(request.getVersion()));
+			logger.info("1");
                		ArrayList<String> misslist;
                 	Iterable<String> iter_misslist;
 			if (request.getVersion() == cur_version + 1) { /* valid */
 				// check missing blocks
 				misslist = findBlock(hashlist);
-				
+				logger.info("get into valid version");
 				if (!misslist.isEmpty()){
 					iter_misslist = misslist;
+					for (String miss: misslist){
+						logger.info(miss);
+					}
+					logger.info("2");
 					builder.setResult(WriteResult.Result.MISSING_BLOCKS);
                 			builder.setCurrentVersion(cur_version);
 					builder.addAllMissingBlocks(iter_misslist); /* check if addAll repeated field workds */
 				} else { // no missing blocks
 					// update followers - success if more than half of servers are updated
+					logger.info("no missing blocks");
 					int twoPCsuccess = twoPhase(request);
+					logger.info("twoPCsuccess is " + Integer.toString(twoPCsuccess));
+					logger.info("number of servers is " + Integer.toString(config.getNumMetadataServers()));
 					if (2 * (twoPCsuccess + 1) > config.getNumMetadataServers()){
+						logger.info("can update maps");
 						versionMap.put(request.getFilename(),  request.getVersion());
                                         	metadataMap.put(request.getFilename(), hashlist);
 						if (twoPCsuccess + 1 < config.getNumMetadataServers()){
                                         		// not all followers updated
 							updatedFiles.add(request);
 						}
+
+						logger.info("version map getversion is " + versionMap.get(request.getFilename()));
 						builder.setResult(WriteResult.Result.OK);
                                         	builder.setCurrentVersion(request.getVersion());
 					} else { // more than half of servers crashed
@@ -322,6 +344,7 @@ public final class MetadataStore {
 					}
 				}
 			} else { /* not valid */
+				logger.info("not valid version");
 				builder.setResult(WriteResult.Result.OLD_VERSION);
 				builder.setCurrentVersion(cur_version); // check if CurrentVersion works
 			}
