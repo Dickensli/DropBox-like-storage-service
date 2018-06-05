@@ -4,6 +4,7 @@ import java.util.*;
 import java.nio.charset.StandardCharsets;
 import java.io.File;
 import java.io.FileWriter;
+import java.io.BufferedWriter;
 import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
 import java.io.IOException;
@@ -67,37 +68,35 @@ public final class Client {
 	return builder.build();
     }
 
-    private void go() {
-	// metadataStub.ping(Empty.newBuilder().build());
-	// logger.info("Successfully pinged the Metadata server");
+   // private void go() {
+   //     metadataStub.ping(Empty.newBuilder().build());
+   //     logger.info("Successfully pinged the Metadata server");
 
-	blockStub.ping(Empty.newBuilder().build());
-	logger.info("Successfully pinged the Blockstore server");
-	// TODO: Implement your client here
-	//Block b1 = stringToBlock("block_01");
-	//Block b2 = stringToBlock("block_02");
+   //     blockStub.ping(Empty.newBuilder().build());
+   //     logger.info("Successfully pinged the Blockstore server");
+   //      TODO: Implement your client here
+   //     Block b1 = stringToBlock("block_01");
+   //     Block b2 = stringToBlock("block_02");
 
-	//ensure(blockStub.hasBlock(b1).getAnswer() == false);
-	//ensure(blockStub.hasBlock(b2).getAnswer() == false);
+   //     ensure(blockStub.hasBlock(b1).getAnswer() == false);
+   //     ensure(blockStub.hasBlock(b2).getAnswer() == false);
 
-	//blockStub.storeBlock(b1);
-	//ensure(blockStub.hasBlock(b1).getAnswer() == true);
+   //     blockStub.storeBlock(b1);
+   //     ensure(blockStub.hasBlock(b1).getAnswer() == true);
 
-	//blockStub.storeBlock(b2);
-	//ensure(blockStub.hasBlock(b2).getAnswer() == true);
+   //     blockStub.storeBlock(b2);
+   //     ensure(blockStub.hasBlock(b2).getAnswer() == true);
 
-	//Block b1prime = blockStub.getBlock(b1);
-	//ensure(b1prime.getHash().equals(b1.getHash()));
-	//ensure(b1.getData().equals(b1.getData()));
+   //     Block b1prime = blockStub.getBlock(b1);
+   //     ensure(b1prime.getHash().equals(b1.getHash()));
+   //     ensure(b1.getData().equals(b1.getData()));
 
-	logger.info("We passed all the test!");
-    }
+   //     logger.info("We passed all the test!");
+   // }
 
     private void upload(String targetf) throws IOException, RuntimeException{
-    	//System.out.println("1");
 	ArrayList<String> hashList = new ArrayList();
 	LinkedHashMap<String, ByteString> hashToPlain = new LinkedHashMap();
-	//System.out.println("2");
 	String[] nameList = targetf.split("/");
 	String realName = nameList[nameList.length-1];
 	try(RandomAccessFile file = new RandomAccessFile(targetf, "r")){
@@ -114,12 +113,9 @@ public final class Client {
 			hashToPlain.put(hash, data);
 		}
 	}catch (IOException e){
-		//if(e instanceof EOFException)
-		//	System.out.println("EOF");
-		//else
-			throw e;
+		throw e;
 	}
-
+	
 	FileInfo reqFileInfo = FileInfo.newBuilder().setFilename(realName).build();
 	FileInfo respFileInfo = metadataStub.readFile(reqFileInfo);
 	int version = respFileInfo.getVersion();
@@ -128,9 +124,6 @@ public final class Client {
 		.setVersion(version+1)
 		.addAllBlocklist(hashList)
 		.build();
-	//for(String hash : hashToPlain.keySet()){
-	//	System.out.println(new String(hashToPlain.get(hash).toByteArray()));	
-	//}
 	WriteResult result = metadataStub.modifyFile(reqFileInfo);
 	ArrayList<String> missList = new ArrayList(result.getMissingBlocksList()); 
 	//Check if needed to connect to blockStore
@@ -147,7 +140,6 @@ public final class Client {
 			.addAllBlocklist(hashList)
 			.build();
 		result = metadataStub.modifyFile(reqFileInfo);
-		//System.out.println(result.getResult());
 	}
 	if(result.getResult() == WriteResult.Result.OK){
 		System.out.println("OK");
@@ -164,8 +156,6 @@ public final class Client {
 
 	FileInfo reqFileInfo = FileInfo.newBuilder().setFilename(targetf).build();
 	FileInfo respFileInfo = metadataStub.readFile(reqFileInfo);
-	System.out.println(1);
-	System.out.println(respFileInfo.getVersion());
 
 	if(respFileInfo.getVersion() == 0 || respFileInfo.getBlocklist(0).equals("0")){
 		System.out.println("Not Found"); 	
@@ -173,9 +163,8 @@ public final class Client {
 	}
 	ArrayList<String> pulledHashList = new ArrayList(respFileInfo.getBlocklistList());
 	
-	File nfile = new File(tfolder + targetf);
-	nfile.createNewFile();
-	System.out.println(2);
+	String content = new String();
+	BufferedWriter writer = null;
 	try(RandomAccessFile file = new RandomAccessFile(tfolder + "/" + targetf, "rw")){
 		byte[] tmp;
 		for(long i = 0; i < file.length() / 4096; i++){
@@ -189,11 +178,9 @@ public final class Client {
 			hashList.add(hash);
 			hashToPlain.put(hash, data);
 		}
-		System.out.println(3);
-		for(String hash : hashToPlain.keySet()){
-			System.out.println(new String(hashToPlain.get(hash).toByteArray()));	
-		}
-		String content = new String();
+		//for(String hash : hashToPlain.keySet()){
+		//	System.out.println(new String(hashToPlain.get(hash).toByteArray()));	
+		//}
 		for(String pulledHash : pulledHashList){
 			if(hashToPlain.containsKey(pulledHash)){
 				content += new String(hashToPlain.get(pulledHash).toByteArray());
@@ -204,11 +191,13 @@ public final class Client {
 				content += new String(block.getData().toByteArray());
 			}
 		}
-		System.out.println(content);
-		System.out.println(4);
-		file.seek(0);
-		System.out.println(5);
-		file.writeChars(content);
+	}catch (IOException e){
+		throw e;
+	}
+	try{
+		writer = new BufferedWriter( new FileWriter(tfolder + "/" + targetf));
+		writer.write(content);
+		writer.close();
 		System.out.println("OK");
 	}catch (IOException e){
 		throw e;
@@ -275,7 +264,7 @@ public final class Client {
 			client.download(targetf, tfolder);
 		}
 		if(c_args.getString("operation").equals("getversion"))
-			System.out.println(targetf + "'s current version: " + client.getVersion(targetf));
+			System.out.println(client.getVersion(targetf));
 		if(c_args.getString("operation").equals("delete"))
 			client.delete(targetf);
         } 
