@@ -50,7 +50,7 @@ public final class Client {
         this.blockStub = BlockStoreGrpc.newBlockingStub(blockChannel);
 
 	this.leader = config.getLeaderNum(); 
-	this.follower = (this.leader + 1) % config.getNumMetadataServers();
+	this.follower = (this.leader + 1) % config.getNumMetadataServers() + 1;
 	System.out.println("Leader index: " + this.leader + "; Follower index: " + this.follower);
         this.followerChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(this.follower))
                 .usePlaintext(true).build();
