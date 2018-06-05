@@ -1,6 +1,7 @@
 package surfstore;
 
 import java.util.*;
+import java.nio.charset.StandardCharsets;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.RandomAccessFile;
@@ -32,7 +33,7 @@ public final class Client {
     private final ConfigReader config;
 
     public Client(ConfigReader config) {
-        this.metadataChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(1))
+        this.metadataChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(config.getLeaderNum()))
                 .usePlaintext(true).build();
         this.metadataStub = MetadataStoreGrpc.newBlockingStub(metadataChannel);
 
@@ -61,7 +62,7 @@ public final class Client {
 	} catch (UnsupportedEncodingException e){
 		throw new RuntimeException(e);
 	}
-	builder.setHash(HashUtils.sha256(s));
+	builder.setHash(HashUtils.sha256(s.getBytes(StandardCharsets.UTF_8)));
 
 	return builder.build();
     }
@@ -107,9 +108,8 @@ public final class Client {
 			else
 				tmp = new byte[(int)file.length() % 4096];
 			file.readFully(tmp);
-			String data_s = new String(tmp);
-			ByteString data = ByteString.copyFrom(data_s, "UTF-8");	
-			String hash = HashUtils.sha256(data_s); 
+			ByteString data = ByteString.copyFrom(tmp);
+			String hash = HashUtils.sha256(tmp); 
 			hashList.add(hash);
 			hashToPlain.put(hash, data);
 		}
@@ -133,19 +133,22 @@ public final class Client {
 	//}
 	WriteResult result = metadataStub.modifyFile(reqFileInfo);
 	ArrayList<String> missList = new ArrayList(result.getMissingBlocksList()); 
-	Block.Builder blBuilder = Block.newBuilder();	
-	for(String missHash : missList){
-		blockStub.storeBlock(blBuilder.setHash(missHash)
-				.setData(hashToPlain.get(missHash))
-				.build());
-	}
+	//Check if needed to connect to blockStore
+	if(missList.size() != 0){
+		Block.Builder blBuilder = Block.newBuilder();	
+		for(String missHash : missList){
+			blockStub.storeBlock(blBuilder.setHash(missHash)
+					.setData(hashToPlain.get(missHash))
+					.build());
+		}
 
-	reqFileInfo = FileInfo.newBuilder().setFilename(realName)
-		.setVersion(version+1)
-		.addAllBlocklist(hashList)
-		.build();
-	result = metadataStub.modifyFile(reqFileInfo);
-	System.out.println(result.getResult());
+		reqFileInfo = FileInfo.newBuilder().setFilename(realName)
+			.setVersion(version+1)
+			.addAllBlocklist(hashList)
+			.build();
+		result = metadataStub.modifyFile(reqFileInfo);
+		//System.out.println(result.getResult());
+	}
 	if(result.getResult() == WriteResult.Result.OK){
 		System.out.println("OK");
 		return;
@@ -173,7 +176,7 @@ public final class Client {
 	File nfile = new File(tfolder + targetf);
 	nfile.createNewFile();
 	System.out.println(2);
-	try(RandomAccessFile file = new RandomAccessFile(tfolder + targetf, "r")){
+	try(RandomAccessFile file = new RandomAccessFile(tfolder + "/" + targetf, "rw")){
 		byte[] tmp;
 		for(long i = 0; i < file.length() / 4096; i++){
 			if(i < file.length() / 4096) 
@@ -181,9 +184,8 @@ public final class Client {
 			else
 				tmp = new byte[(int)file.length() % 4096];
 			file.readFully(tmp);
-			String data_s = new String(tmp);
-			ByteString data = ByteString.copyFrom(data_s, "UTF-8");	
-			String hash = HashUtils.sha256(data_s); 
+			ByteString data = ByteString.copyFrom(tmp);
+			String hash = HashUtils.sha256(tmp); 
 			hashList.add(hash);
 			hashToPlain.put(hash, data);
 		}
@@ -202,8 +204,10 @@ public final class Client {
 				content += new String(block.getData().toByteArray());
 			}
 		}
+		System.out.println(content);
 		System.out.println(4);
 		file.seek(0);
+		System.out.println(5);
 		file.writeChars(content);
 		System.out.println("OK");
 	}catch (IOException e){
@@ -219,14 +223,15 @@ public final class Client {
 	return respFileInfo.getVersion();
     }
 
-    private void delete(String targetf) throws RuntimeException{
+    private void delete(String targetf){
 	WriteResult result = metadataStub.deleteFile(FileInfo.newBuilder()
 							.setFilename(targetf)
 							.build());
 	if(result.getResult() == WriteResult.Result.OK)
-		return;
+		System.out.println("OK");
 	else
-		throw new RuntimeException("Deleting files");
+		System.out.println("Not Found");
+	return;
     }
 
     private static Namespace parseArgs(String[] args) {
@@ -275,9 +280,7 @@ public final class Client {
 			client.delete(targetf);
         } 
         catch (IOException e){
-        	System.err.println("Failed in reading" + targetf);}
-        catch (RuntimeException e){
-        	System.err.println(e.getMessage() + " fails!");}
+        	System.err.println("Failed in reading " + targetf);}
         finally {
             client.shutdown();
         }

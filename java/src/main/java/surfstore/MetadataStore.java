@@ -365,30 +365,29 @@ public final class MetadataStore {
 		WriteResult.Builder builder = WriteResult.newBuilder();
 		if (leader) {
 			logger.info("Deleting file  " + request.getFilename());
-
-                	int cur_version = versionMap.get(request.getFilename());
-			if (request.getVersion() == cur_version + 1) { /* valid */
-				int twoPCsuccess = twoPhase(request);
+			if (metadataMap.containsKey(request.getFilename()) && !metadataMap.get(request.getFilename()).get(0).equals("0")) {
+				int cur_version = versionMap.get(request.getFilename());
+				FileInfo new_request = FileInfo.newBuilder().setFilename(request.getFilename()).setVersion(cur_version + 1).build();
+				int twoPCsuccess = twoPhase(new_request);
 				if (2 * (twoPCsuccess + 1) > config.getNumMetadataServers()){ 
 					// update maps
 					ArrayList<String> hashlist = new ArrayList<String>();
 					String hash = "0";
 					hashlist.add(hash);
-					versionMap.put(request.getFilename(), request.getVersion());
+					versionMap.put(request.getFilename(), cur_version + 1);
 					metadataMap.put(request.getFilename(), hashlist);
 					if (twoPCsuccess + 1 < config.getNumMetadataServers()){
 						// not all followers updated
-						updatedFiles.add(request);
+						updatedFiles.add(new_request);
 					}
 					builder.setResult(WriteResult.Result.OK);
-					builder.setCurrentVersion(request.getVersion());
+					builder.setCurrentVersion(cur_version);
 				} else { // more than half of servers crashed
 					builder.setResult(WriteResult.Result.OLD_VERSION);
                                 	builder.setCurrentVersion(cur_version);
 				}
-			} else { /* not valid */
-                        	builder.setResult(WriteResult.Result.OLD_VERSION);
-                        	builder.setCurrentVersion(cur_version);
+			} else { // not in maps
+				builder.setResult(WriteResult.Result.OLD_VERSION);
 			}
 		} else {
 			builder.setResult(WriteResult.Result.NOT_LEADER);

@@ -7,7 +7,7 @@ import java.util.Base64;
 
 public class HashUtils {
 
-	public static String sha256(String s){
+	public static String sha256(byte[] s){
 		MessageDigest digest = null;
 		try {
 			digest = MessageDigest.getInstance("SHA-256");
@@ -15,7 +15,7 @@ public class HashUtils {
 			e.printStackTrace();
 			System.exit(2);
 		}
-		byte[] hash = digest.digest(s.getBytes(StandardCharsets.UTF_8));
+		byte[] hash = digest.digest(s);
 		String encoded = Base64.getEncoder().encodeToString(hash);
 		return encoded;
 	}
