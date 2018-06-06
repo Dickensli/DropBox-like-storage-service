@@ -30,6 +30,7 @@ service MetadataStore {
     //
     // This command should return an error if it is called on a server
     // that is not the leader
+    rpc UpdateFollower(FileInfo) returns (WriteResult) {}
     rpc ModifyFile (FileInfo) returns (WriteResult) {}
 
     // Delete a file.
@@ -128,3 +129,4 @@ message SimpleAnswer {
 message NodeList {
     repeated int32 nodelist = 1;
 }
+
