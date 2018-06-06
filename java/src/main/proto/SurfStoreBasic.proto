@@ -30,6 +30,7 @@ service MetadataStore {
     //
     // This command should return an error if it is called on a server
     // that is not the leader
+    rpc UpdateLog(LogInfo) returns (SimpleAnswer) {}
     rpc UpdateFollower(FileInfo) returns (WriteResult) {}
     rpc ModifyFile (FileInfo) returns (WriteResult) {}
 
@@ -124,6 +125,11 @@ message WriteResult {
 
 message SimpleAnswer {
     bool answer = 1;
+}
+
+message LogInfo {
+    string log = 1;
+    string filename = 2;
 }
 
 message NodeList {

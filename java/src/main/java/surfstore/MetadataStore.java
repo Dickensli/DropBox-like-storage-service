@@ -66,13 +66,13 @@ public final class MetadataStore {
 		}	
 	}
 	// update followers during heartbeat
-	private int update(surfstore.SurfStoreBasic.FileInfo request) {
+	private int update(surfstore.SurfStoreBasic.FileInfo request, String method) {
                 int updated = 0;
                 for (int i = 0; i < metadataStubList.size(); i++) {
                         MetadataStoreGrpc.MetadataStoreBlockingStub metaStub = metadataStubList.get(i);
                         metaStub.ping(Empty.newBuilder().build());
                         // 1st phase
-                        if (metaStub.isCrashed(Empty.newBuilder().build()).getAnswer() == false) { // not crashed
+			if (metaStub.updateLog(LogInfo.newBuilder().setLog(method).setFilename(request.getFilename()).build()).getAnswer() == false) { // not crashed
 				// 2nd phase
 				if (metaStub.updateFollower(request).getResult() == WriteResult.Result.OK) {
 					followerMapList.get(i).put(request.getFilename(), request.getVersion());
@@ -97,7 +97,8 @@ public final class MetadataStore {
 				ArrayList<surfstore.SurfStoreBasic.FileInfo> currentFile = new ArrayList<surfstore.SurfStoreBasic.FileInfo>(updatedFiles);
 				for (Iterator<surfstore.SurfStoreBasic.FileInfo> iterator = currentFile.iterator(); iterator.hasNext(); ) {
 					surfstore.SurfStoreBasic.FileInfo file = iterator.next();
-					if (update(file) + 1 == config.getNumMetadataServers()) {
+					String method = "catch up";
+					if (update(file, method) + 1 == config.getNumMetadataServers()) {
 						successFile.add(file);
 					}
 				} 
@@ -239,6 +240,20 @@ public final class MetadataStore {
 		responseObserver.onNext(response);
 		responseObserver.onCompleted();
 	}
+	
+	public void updateLog(surfstore.SurfStoreBasic.LogInfo request,
+        	io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.SimpleAnswer> responseObserver) {
+        	logger.info("Updating log in follower");
+		
+		SimpleAnswer.Builder builder = SimpleAnswer.newBuilder();
+
+		if (!crashed) {
+			logger.info("Log method " + request.getLog() + " on file " + request.getFilename());
+		}
+		SimpleAnswer response = builder.setAnswer(crashed).build();
+		responseObserver.onNext(response);
+                responseObserver.onCompleted(); 
+	}
 
 	private ArrayList<String> findBlock (ArrayList<String> hashlist) {
 		blockStub.ping(Empty.newBuilder().build());
@@ -280,7 +295,7 @@ public final class MetadataStore {
                 responseObserver.onCompleted();
 	}
 
-	private int twoPhase(surfstore.SurfStoreBasic.FileInfo request) {
+	private int twoPhase(surfstore.SurfStoreBasic.FileInfo request, String method) {
 		int updated = 0;
 		logger.info("two phase");
 		for (int i = 0; i < metadataStubList.size(); i++) {
@@ -288,7 +303,7 @@ public final class MetadataStore {
 			metaStub.ping(Empty.newBuilder().build());
 			// 1st phase
 			logger.info("leader successfully ping follower");
-			if (metaStub.isCrashed(Empty.newBuilder().build()).getAnswer() == false) { // not crashed
+			if (metaStub.updateLog(LogInfo.newBuilder().setLog(method).setFilename(request.getFilename()).build()).getAnswer() == false) { // not crashed
 				// 2nd phase
 				logger.info("follower not crashed");
 				if (metaStub.updateFollower(request).getResult() == WriteResult.Result.OK) {
@@ -335,7 +350,8 @@ public final class MetadataStore {
 				} else { // no missing blocks
 					// update followers - success if more than half of servers are updated
 					logger.info("no missing blocks");
-					int twoPCsuccess = twoPhase(request);
+					String method = "modify";
+					int twoPCsuccess = twoPhase(request, method);
 					logger.info("twoPCsuccess is " + Integer.toString(twoPCsuccess));
 					logger.info("number of servers is " + Integer.toString(config.getNumMetadataServers()));
 					if (2 * (twoPCsuccess + 1) > config.getNumMetadataServers()){
@@ -381,7 +397,8 @@ public final class MetadataStore {
 				int cur_version = versionMap.get(request.getFilename());
 				logger.info("can delete file " + request.getFilename());
 				FileInfo new_request = FileInfo.newBuilder().setFilename(request.getFilename()).setVersion(cur_version + 1).build();
-				int twoPCsuccess = twoPhase(new_request);
+				String method = "delete";
+				int twoPCsuccess = twoPhase(new_request, method);
 				logger.info("2pc success num is " + Integer.toString(twoPCsuccess));
 				if (2 * (twoPCsuccess + 1) > config.getNumMetadataServers()){ 
 					// update maps
