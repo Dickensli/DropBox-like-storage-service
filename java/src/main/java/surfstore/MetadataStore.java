@@ -22,6 +22,8 @@ import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import surfstore.SurfStoreBasic.*;
 
+import java.util.ConcurrentModificationException;
+
 public final class MetadataStore {
 	private static final Logger logger = Logger.getLogger(MetadataStore.class.getName());
 
@@ -78,6 +80,7 @@ public final class MetadataStore {
 				}
 			}
 		}
+		logger.info("heartbeat update follower numbers " + Integer.toString(updated));
 		return updated;
 	}
 	
@@ -87,15 +90,25 @@ public final class MetadataStore {
 				Thread.sleep(500);
 			}
 			catch (InterruptedException e) {System.err.println(e);}
-			Iterator<surfstore.SurfStoreBasic.FileInfo> i = updatedFiles.iterator();
-			while (i.hasNext()) {
-   				surfstore.SurfStoreBasic.FileInfo file = i.next(); 
-   				// if all the followers are updated, remove file from updatedFiles
-				int success = update(file);
-				if (success + 1 == config.getNumMetadataServers()){
-   					i.remove();
+			
+			if (updatedFiles.size() > 0) {
+				logger.info("before update: updatedFiles contains file numbers " + Integer.toString(updatedFiles.size()));
+				ArrayList<surfstore.SurfStoreBasic.FileInfo> successFile = new ArrayList<surfstore.SurfStoreBasic.FileInfo>();
+				ArrayList<surfstore.SurfStoreBasic.FileInfo> currentFile = new ArrayList<surfstore.SurfStoreBasic.FileInfo>(updatedFiles);
+				for (Iterator<surfstore.SurfStoreBasic.FileInfo> iterator = currentFile.iterator(); iterator.hasNext(); ) {
+					surfstore.SurfStoreBasic.FileInfo file = iterator.next();
+					if (update(file) + 1 == config.getNumMetadataServers()) {
+						successFile.add(file);
+					}
+				} 
+				try {
+					updatedFiles.removeAll(successFile);
+				} catch (ConcurrentModificationException e) {
+                                        logger.info("concurrent modifying updatedFiles");
 				}
-   			}
+
+				logger.info("after update: updateFiles contains file numbers " + Integer.toString(updatedFiles.size()));
+			}
 		}
 	}
 
@@ -128,8 +141,6 @@ public final class MetadataStore {
                 System.err.println("*** server shut down");
             }
         });
-
-	
     }
 
     private void stop() {
@@ -255,7 +266,6 @@ public final class MetadataStore {
 
 		if (!crashed){
 			logger.info("Updating file " + request.getFilename());
-		
 			versionMap.put(request.getFilename(), request.getVersion());
 			ArrayList<String> hashlist = new ArrayList<String>(request.getBlocklistList());
 			metadataMap.put(request.getFilename(), hashlist);
@@ -277,9 +287,10 @@ public final class MetadataStore {
 			MetadataStoreGrpc.MetadataStoreBlockingStub metaStub = metadataStubList.get(i);
 			metaStub.ping(Empty.newBuilder().build());
 			// 1st phase
+			logger.info("leader successfully ping follower");
 			if (metaStub.isCrashed(Empty.newBuilder().build()).getAnswer() == false) { // not crashed
 				// 2nd phase
-				logger.info("centralized should not be here");
+				logger.info("follower not crashed");
 				if (metaStub.updateFollower(request).getResult() == WriteResult.Result.OK) {
 					followerMapList.get(i).put(request.getFilename(), request.getVersion());
 					updated++;
@@ -320,7 +331,7 @@ public final class MetadataStore {
 					logger.info("2");
 					builder.setResult(WriteResult.Result.MISSING_BLOCKS);
                 			builder.setCurrentVersion(cur_version);
-					builder.addAllMissingBlocks(iter_misslist); /* check if addAll repeated field workds */
+					builder.addAllMissingBlocks(iter_misslist); 
 				} else { // no missing blocks
 					// update followers - success if more than half of servers are updated
 					logger.info("no missing blocks");
@@ -347,7 +358,7 @@ public final class MetadataStore {
 			} else { /* not valid */
 				logger.info("not valid version");
 				builder.setResult(WriteResult.Result.OLD_VERSION);
-				builder.setCurrentVersion(cur_version); // check if CurrentVersion works
+				builder.setCurrentVersion(cur_version); 
 			}
 		} else {
 			builder.setResult(WriteResult.Result.NOT_LEADER);
@@ -368,10 +379,13 @@ public final class MetadataStore {
 			logger.info("Deleting file  " + request.getFilename());
 			if (metadataMap.containsKey(request.getFilename()) && !metadataMap.get(request.getFilename()).get(0).equals("0")) {
 				int cur_version = versionMap.get(request.getFilename());
+				logger.info("can delete file " + request.getFilename());
 				FileInfo new_request = FileInfo.newBuilder().setFilename(request.getFilename()).setVersion(cur_version + 1).build();
 				int twoPCsuccess = twoPhase(new_request);
+				logger.info("2pc success num is " + Integer.toString(twoPCsuccess));
 				if (2 * (twoPCsuccess + 1) > config.getNumMetadataServers()){ 
 					// update maps
+					logger.info("can update map");
 					ArrayList<String> hashlist = new ArrayList<String>();
 					String hash = "0";
 					hashlist.add(hash);
@@ -388,6 +402,7 @@ public final class MetadataStore {
                                 	builder.setCurrentVersion(cur_version);
 				}
 			} else { // not in maps
+				logger.info("cannot delte file");
 				builder.setResult(WriteResult.Result.OLD_VERSION);
 			}
 		} else {
