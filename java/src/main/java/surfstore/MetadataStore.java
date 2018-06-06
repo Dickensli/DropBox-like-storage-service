@@ -220,6 +220,7 @@ public final class MetadataStore {
 		iter_hashlist = hashlist;
 
 		FileInfo.Builder builder = FileInfo.newBuilder();
+		builder.setFilename(request.getFilename());
 		builder.setVersion(version);
 		builder.addAllBlocklist(iter_hashlist); 
 		FileInfo response = builder.build();

@@ -111,8 +111,10 @@ public final class Client {
 
 
     private void heartBeatTest(String targetf){
+	String[] nameList = targetf.split("/");
+	String realName = nameList[nameList.length-1];
 	FileInfo respFileInfo = followerStub.readFile(FileInfo.newBuilder()
-							.setFilename(targetf)
+							.setFilename(realName)
 							.build());
 	int beforeVersion = respFileInfo.getVersion();
 
@@ -135,7 +137,7 @@ public final class Client {
 	}
 
 	respFileInfo = followerStub.readFile(FileInfo.newBuilder()
-							.setFilename(targetf)
+							.setFilename(realName)
 							.build());
 	int afterVersion = respFileInfo.getVersion();
 	System.out.println("before: " + beforeVersion);
