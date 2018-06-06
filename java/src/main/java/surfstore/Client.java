@@ -116,10 +116,10 @@ public final class Client {
 	FileInfo respFileInfo = followerStub.readFile(FileInfo.newBuilder()
 							.setFilename(realName)
 							.build());
-	int beforeVersion = respFileInfo.getVersion();
+	System.out.println("Before upload: " + respFileInfo.getVersion());
 
 	followerStub.crash(Empty.newBuilder().build());
-	logger.info("Crashed" + this.follower);
+	logger.info("Crashed follower " + this.follower);
 
 	try{
 		upload(targetf);
@@ -127,8 +127,28 @@ public final class Client {
 		System.out.println("Error occurs in uploading to the leader.");
 	}
 
+	respFileInfo = metadataStub.readFile(FileInfo.newBuilder()
+							.setFilename(realName)
+							.build());
+	System.out.println("After Crash, after upload, leader: " + respFileInfo.getVersion());
+	respFileInfo = followerStub.readFile(FileInfo.newBuilder()
+							.setFilename(realName)
+							.build());
+	System.out.println("After Crash, after upload, follower: " + respFileInfo.getVersion());
+
+	delete(realName);
+
+	respFileInfo = metadataStub.readFile(FileInfo.newBuilder()
+							.setFilename(realName)
+							.build());
+	System.out.println("After Crash, after delete, leader: " + respFileInfo.getVersion());
+	respFileInfo = followerStub.readFile(FileInfo.newBuilder()
+							.setFilename(realName)
+							.build());
+	System.out.println("After crash, after delete, follower: " + respFileInfo.getVersion());
+
 	followerStub.restore(Empty.newBuilder().build());
-	logger.info("Restored" + this.follower);
+	logger.info("Restored follower " + this.follower);
 	
 	try{
 	    Thread.sleep(2000);
@@ -139,10 +159,15 @@ public final class Client {
 	respFileInfo = followerStub.readFile(FileInfo.newBuilder()
 							.setFilename(realName)
 							.build());
-	int afterVersion = respFileInfo.getVersion();
-	System.out.println("before: " + beforeVersion);
-	System.out.println("after: " + afterVersion);
-	ensure(beforeVersion != afterVersion);
+	int fVersion = respFileInfo.getVersion();
+	System.out.println("After restore, follower: " + fVersion);
+	
+	respFileInfo = metadataStub.readFile(FileInfo.newBuilder()
+							.setFilename(realName)
+							.build());
+	int lVersion = respFileInfo.getVersion();
+	System.out.println("After restore, leader: " + lVersion);
+	ensure(fVersion == lVersion);
 	return;
     }
 
