@@ -2,7 +2,6 @@ package surfstore;
 
 import java.util.*;
 import java.nio.charset.StandardCharsets;
-import java.lang.Thread;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.BufferedWriter;
@@ -32,13 +31,7 @@ public final class Client {
     private final ManagedChannel blockChannel;
     private final BlockStoreGrpc.BlockStoreBlockingStub blockStub;
 
-    private final ManagedChannel followerChannel;
-    private final MetadataStoreGrpc.MetadataStoreBlockingStub followerStub;
-
     private final ConfigReader config;
-
-    private int leader;
-    private int follower;
 
     public Client(ConfigReader config) {
         this.metadataChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(config.getLeaderNum()))
@@ -49,20 +42,12 @@ public final class Client {
                 .usePlaintext(true).build();
         this.blockStub = BlockStoreGrpc.newBlockingStub(blockChannel);
 
-	this.leader = config.getLeaderNum(); 
-	this.follower = (this.leader + 1) % config.getNumMetadataServers() + 1;
-	System.out.println("Leader index: " + this.leader + "; Follower index: " + this.follower);
-        this.followerChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(this.follower))
-                .usePlaintext(true).build();
-        this.followerStub = MetadataStoreGrpc.newBlockingStub(followerChannel);
-
         this.config = config;
     }
 
     public void shutdown() throws InterruptedException {
         metadataChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
         blockChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
-        followerChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
     }
 
     private void ensure(boolean b){
@@ -108,68 +93,6 @@ public final class Client {
 
    //     logger.info("We passed all the test!");
    // }
-
-
-    private void heartBeatTest(String targetf){
-	String[] nameList = targetf.split("/");
-	String realName = nameList[nameList.length-1];
-	FileInfo respFileInfo = followerStub.readFile(FileInfo.newBuilder()
-							.setFilename(realName)
-							.build());
-	System.out.println("Before upload: " + respFileInfo.getVersion());
-
-	followerStub.crash(Empty.newBuilder().build());
-	logger.info("Crashed follower " + this.follower);
-
-	try{
-		upload(targetf);
-	} catch (IOException | RuntimeException e){
-		System.out.println("Error occurs in uploading to the leader.");
-	}
-
-	respFileInfo = metadataStub.readFile(FileInfo.newBuilder()
-							.setFilename(realName)
-							.build());
-	System.out.println("After Crash, after upload, leader: " + respFileInfo.getVersion());
-	respFileInfo = followerStub.readFile(FileInfo.newBuilder()
-							.setFilename(realName)
-							.build());
-	System.out.println("After Crash, after upload, follower: " + respFileInfo.getVersion());
-
-	delete(realName);
-
-	respFileInfo = metadataStub.readFile(FileInfo.newBuilder()
-							.setFilename(realName)
-							.build());
-	System.out.println("After Crash, after delete, leader: " + respFileInfo.getVersion());
-	respFileInfo = followerStub.readFile(FileInfo.newBuilder()
-							.setFilename(realName)
-							.build());
-	System.out.println("After crash, after delete, follower: " + respFileInfo.getVersion());
-
-	followerStub.restore(Empty.newBuilder().build());
-	logger.info("Restored follower " + this.follower);
-	
-	try{
-	    Thread.sleep(2000);
-	} catch(InterruptedException e) {
-	        Thread.currentThread().interrupt();
-	}
-
-	respFileInfo = followerStub.readFile(FileInfo.newBuilder()
-							.setFilename(realName)
-							.build());
-	int fVersion = respFileInfo.getVersion();
-	System.out.println("After restore, follower: " + fVersion);
-	
-	respFileInfo = metadataStub.readFile(FileInfo.newBuilder()
-							.setFilename(realName)
-							.build());
-	int lVersion = respFileInfo.getVersion();
-	System.out.println("After restore, leader: " + lVersion);
-	ensure(fVersion == lVersion);
-	return;
-    }
 
     private void upload(String targetf) throws IOException, RuntimeException{
 	ArrayList<String> hashList = new ArrayList();
@@ -344,8 +267,6 @@ public final class Client {
 			System.out.println(client.getVersion(targetf));
 		if(c_args.getString("operation").equals("delete"))
 			client.delete(targetf);
-		if(c_args.getString("operation").equals("heartbeat"))
-			client.heartBeatTest(targetf);
         } 
         catch (IOException e){
         	System.err.println("Failed in reading " + targetf);}
